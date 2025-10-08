@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Main script to download video, audio and build final video
-# Usage: make_video VIDEO_URL AUDIO_URL
+# All-in-one script to download video, audio and build final video
+# Usage: make VIDEO_URL AUDIO_URL
 
 # Check arguments
 if [ "$#" -ne 2 ]; then
@@ -15,25 +15,67 @@ fi
 VIDEO_URL="$1"
 AUDIO_URL="$2"
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Ensure all required scripts exist
-for script in video audio build; do
-  if [ ! -x "$SCRIPT_DIR/$script" ]; then
-    echo "Error: Required script $SCRIPT_DIR/$script not found or not executable." >&2
-    exit 1
+# Check required tools
+for cmd in yt-dlp curl ffmpeg; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Error: $cmd not found in PATH. Please install $cmd." >&2
+    exit 127
   fi
 done
 
+# Create required directories
+# current is for temporary files
+# videos is for final videos
+mkdir -p current videos
+
+# Clean up temporary files
+rm -rf "current/*"
+
+# Step 1: Download video
 echo "=== Step 1: Downloading video ==="
-"$SCRIPT_DIR/video" "$VIDEO_URL" || { echo "Error: Video download failed"; exit 1; }
 
+# Validate YouTube URL
+case "$VIDEO_URL" in
+  http://youtube.com/*|https://youtube.com/*|http://www.youtube.com/*|https://www.youtube.com/*|http://youtu.be/*|https://youtu.be/*)
+    ;;
+  *)
+    echo "Error: Video URL must be a YouTube link (youtube.com or youtu.be)." >&2
+    exit 1
+    ;;
+esac
+
+# Download video
+echo "Downloading video from: $VIDEO_URL"
+
+yt-dlp \
+  --cookies-from-browser chrome \
+  --proxy socks5://127.0.0.1:8080 \
+  -o 'current/video.mp4' \
+  -f 'bv*[ext=mp4]' \
+  "$VIDEO_URL" || { echo "Error: Video download failed"; exit 1; }
+
+# Step 2: Download audio
 echo "=== Step 2: Downloading audio ==="
-"$SCRIPT_DIR/audio" "$AUDIO_URL" || { echo "Error: Audio download failed"; exit 1; }
+echo "Downloading audio from: $AUDIO_URL"
+curl -L --fail --silent --show-error --output "current/audio.wav" "$AUDIO_URL" || { echo "Error: Audio download failed"; exit 1; }
 
+# Step 3: Build final video
 echo "=== Step 3: Building final video ==="
-"$SCRIPT_DIR/build" || { echo "Error: Build failed"; exit 1; }
+
+# Remove audio from video first
+echo "Step 3.1: Removing audio from video..."
+ffmpeg -i "current/video.mp4" -c:v copy -an "current/video_noaudio.mp4" -y
+
+# Merge video with new audio
+echo "Step 3.2: Merging with new audio..."
+ffmpeg -i "current/video_noaudio.mp4" -i "current/audio.wav" \
+  -c:v copy -c:a aac -strict experimental \
+  -map 0:v:0 -map 1:a:0 \
+  -shortest \
+  "videos/video.mp4" -y
+
+# Clean up temporary files
+rm -f "current/video_noaudio.mp4"
 
 echo "=== All done! ==="
-echo "Final video is available at: $(pwd)/result/video.mp4"
+echo "Final video is available at: $(pwd)/videos/video.mp4"
