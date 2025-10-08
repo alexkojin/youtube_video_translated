@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Minimal YouTube downloader wrapper around yt-dlp
+# Usage: download_video YOUTUBE_URL
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $(basename "$0") YOUTUBE_URL" >&2
+  exit 1
+fi
+
+URL="$1"
+
+# Require a YouTube URL (simple check)
+case "$URL" in
+  http://youtube.com/*|https://youtube.com/*|http://www.youtube.com/*|https://www.youtube.com/*|http://youtu.be/*|https://youtu.be/*)
+    ;;
+  *)
+    echo "Error: URL must be a YouTube link (youtube.com or youtu.be)." >&2
+    exit 1
+    ;;
+esac
+
+if ! command -v yt-dlp >/dev/null 2>&1; then
+  echo "Error: yt-dlp not found in PATH. Please install yt-dlp." >&2
+  exit 127
+fi
+
+mkdir -p current
+rm -f "current/video.mp4"
+
+exec yt-dlp \
+  --cookies-from-browser chrome \
+  --proxy socks5://127.0.0.1:8080 \
+  -o 'current/video.mp4' \
+  -f 'bv*[ext=mp4]' \
+  "$URL"

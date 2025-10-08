@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Build script to merge video and audio
+# Usage: build
+
+# Ensure directories exist
+mkdir -p current videos
+
+# Clean up temporary files
+rm -f "videos/video.mp4"
+
+# Check if input files exist
+if [ ! -f "current/video.mp4" ]; then
+  echo "Error: current/video.mp4 not found. Please download video first." >&2
+  exit 1
+fi
+
+if [ ! -f "current/audio.wav" ]; then
+  echo "Error: current/audio.wav not found. Please provide audio file." >&2
+  exit 1
+fi
+
+# Check if ffmpeg is installed
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  echo "Error: ffmpeg not found in PATH. Please install ffmpeg." >&2
+  exit 127
+fi
+
+echo "Merging video and audio..."
+
+# Remove audio from video first
+echo "Step 1: Removing audio from video..."
+ffmpeg -i "current/video.mp4" -c:v copy -an "current/video_noaudio.mp4" -y
+
+# Merge video with new audio
+echo "Step 2: Merging with new audio..."
+ffmpeg -i "current/video_noaudio.mp4" -i "current/audio.wav" \
+  -c:v copy -c:a aac -strict experimental \
+  -map 0:v:0 -map 1:a:0 \
+  -shortest \
+  "videos/video.mp4" -y
+
+# Clean up temporary files
+rm -f "current/video_noaudio.mp4"
+
+echo "Success! Final video saved to videos/video.mp4"

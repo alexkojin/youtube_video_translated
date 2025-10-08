@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Audio downloader script using curl
+# Usage: audio URL
+
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $(basename "$0") URL" >&2
+  exit 1
+fi
+
+URL="$1"
+
+# Ensure output directory exists
+mkdir -p current
+
+# Clean up temporary files
+rm -f "current/audio.wav"
+
+# Check if curl is installed
+if ! command -v curl >/dev/null 2>&1; then
+  echo "Error: curl not found in PATH. Please install curl." >&2
+  exit 127
+fi
+
+echo "Downloading audio from: $URL"
+
+# Download audio file with curl
+curl -L --fail --silent --show-error --output "current/audio.wav" "$URL"
+
+# Check if download was successful
+if [ $? -eq 0 ]; then
+  echo "Audio downloaded to current/audio.wav"
+else
+  echo "Error: Failed to download audio file." >&2
+  exit 1
+fi
