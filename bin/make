@@ -24,12 +24,7 @@ for cmd in yt-dlp curl ffmpeg; do
 done
 
 # Create required directories
-# current is for temporary files
-# videos is for final videos
 mkdir -p current videos
-
-# Clean up temporary files
-rm -rf "current/*"
 
 # Step 1: Download video
 echo "=== Step 1: Downloading video ==="
@@ -44,9 +39,35 @@ case "$VIDEO_URL" in
     ;;
 esac
 
-# Download video
-echo "Downloading video from: $VIDEO_URL"
+# Extract video ID from URL
+VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p')
+if [ -z "$VIDEO_ID" ]; then
+  # Try youtu.be format
+  VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's|.*/\([^/?]*\).*|\1|p')
+fi
 
+if [ -z "$VIDEO_ID" ]; then
+  echo "Error: Could not extract video ID from URL." >&2
+  exit 1
+fi
+
+echo "Video ID: $VIDEO_ID"
+
+# First get the title without downloading
+echo "Getting video title..."
+VIDEO_TITLE=$(yt-dlp --get-title --cookies-from-browser chrome --proxy socks5://127.0.0.1:8080 "$VIDEO_URL")
+echo "Video title: $VIDEO_TITLE"
+
+# Sanitize title for filename (remove special characters)
+SAFE_TITLE=$(echo "$VIDEO_TITLE" | tr -c '[:alnum:]_-' '_' | sed 's/__*/_/g' | sed 's/^_//;s/_$//')
+
+# Final output filename
+OUTPUT_FILENAME="${SAFE_TITLE}-${VIDEO_ID}.mp4"
+echo "Output filename: $OUTPUT_FILENAME"
+
+# Now download the video
+echo "Downloading video from: $VIDEO_URL"
+rm -f "current/video.mp4"
 yt-dlp \
   --cookies-from-browser chrome \
   --proxy socks5://127.0.0.1:8080 \
@@ -54,10 +75,22 @@ yt-dlp \
   -f 'bv*[ext=mp4]' \
   "$VIDEO_URL" || { echo "Error: Video download failed"; exit 1; }
 
+# Verify video file exists
+if [ ! -f "current/video.mp4" ]; then
+  echo "Error: Video download failed. File not created." >&2
+  exit 1
+fi
+
 # Step 2: Download audio
 echo "=== Step 2: Downloading audio ==="
 echo "Downloading audio from: $AUDIO_URL"
 curl -L --fail --silent --show-error --output "current/audio.wav" "$AUDIO_URL" || { echo "Error: Audio download failed"; exit 1; }
+
+# Verify audio file exists
+if [ ! -f "current/audio.wav" ]; then
+  echo "Error: Audio download failed. File not created." >&2
+  exit 1
+fi
 
 # Step 3: Build final video
 echo "=== Step 3: Building final video ==="
@@ -66,16 +99,22 @@ echo "=== Step 3: Building final video ==="
 echo "Step 3.1: Removing audio from video..."
 ffmpeg -i "current/video.mp4" -c:v copy -an "current/video_noaudio.mp4" -y
 
+# Verify intermediate file exists
+if [ ! -f "current/video_noaudio.mp4" ]; then
+  echo "Error: Failed to create video without audio." >&2
+  exit 1
+fi
+
 # Merge video with new audio
 echo "Step 3.2: Merging with new audio..."
 ffmpeg -i "current/video_noaudio.mp4" -i "current/audio.wav" \
   -c:v copy -c:a aac -strict experimental \
   -map 0:v:0 -map 1:a:0 \
   -shortest \
-  "videos/video.mp4" -y
+  "videos/${OUTPUT_FILENAME}" -y
 
 # Clean up temporary files
 rm -f "current/video_noaudio.mp4"
 
 echo "=== All done! ==="
-echo "Final video is available at: $(pwd)/videos/video.mp4"
+echo "Final video is available at: $(pwd)/videos/${OUTPUT_FILENAME}"
