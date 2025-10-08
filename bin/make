@@ -29,6 +29,25 @@ mkdir -p current videos
 # Step 1: Download video
 echo "=== Step 1: Downloading video ==="
 
+# Clean YouTube URL - remove list parameter and other query parameters except v
+# First check if it's a youtube.com URL with v parameter
+if echo "$VIDEO_URL" | grep -q 'youtube\.com.*[?&]v='; then
+  # Extract just the video ID
+  VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p')
+  # Recreate a clean URL with only the v parameter
+  CLEAN_VIDEO_URL="https://www.youtube.com/watch?v=${VIDEO_ID}"
+  echo "Cleaned URL: $CLEAN_VIDEO_URL"
+  VIDEO_URL="$CLEAN_VIDEO_URL"
+# Check if it's a youtu.be URL
+elif echo "$VIDEO_URL" | grep -q 'youtu\.be/'; then
+  # Extract just the video ID from youtu.be URL
+  VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's|.*/\([^/?]*\).*|\1|p')
+  # Recreate a clean URL
+  CLEAN_VIDEO_URL="https://youtu.be/${VIDEO_ID}"
+  echo "Cleaned URL: $CLEAN_VIDEO_URL"
+  VIDEO_URL="$CLEAN_VIDEO_URL"
+fi
+
 # Validate YouTube URL
 case "$VIDEO_URL" in
   http://youtube.com/*|https://youtube.com/*|http://www.youtube.com/*|https://www.youtube.com/*|http://youtu.be/*|https://youtu.be/*)
@@ -39,23 +58,25 @@ case "$VIDEO_URL" in
     ;;
 esac
 
-# Extract video ID from URL
-VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p')
-if [ -z "$VIDEO_ID" ]; then
-  # Try youtu.be format
-  VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's|.*/\([^/?]*\).*|\1|p')
-fi
+# Extract video ID from URL (using the already extracted ID or re-extract if needed)
+if [ -z "${VIDEO_ID:-}" ]; then
+  VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's/.*[?&]v=\([^&]*\).*/\1/p')
+  if [ -z "$VIDEO_ID" ]; then
+    # Try youtu.be format
+    VIDEO_ID=$(echo "$VIDEO_URL" | sed -n 's|.*/\([^/?]*\).*|\1|p')
+  fi
 
-if [ -z "$VIDEO_ID" ]; then
-  echo "Error: Could not extract video ID from URL." >&2
-  exit 1
+  if [ -z "$VIDEO_ID" ]; then
+    echo "Error: Could not extract video ID from URL." >&2
+    exit 1
+  fi
 fi
 
 echo "Video ID: $VIDEO_ID"
 
 # First get the title without downloading
 echo "Getting video title..."
-VIDEO_TITLE=$(yt-dlp --get-title --cookies-from-browser chrome --proxy socks5://127.0.0.1:8080 "$VIDEO_URL")
+VIDEO_TITLE=$(yt-dlp --get-title --cookies-from-browser chrome --proxy socks5://127.0.0.1:8080  "$VIDEO_URL")
 echo "Video title: $VIDEO_TITLE"
 
 # Sanitize title for filename (remove special characters)
@@ -67,7 +88,8 @@ echo "Output filename: $OUTPUT_FILENAME"
 
 # Now download the video
 echo "Downloading video from: $VIDEO_URL"
-rm -f "current/video.mp4"
+rm -rf "current/*"
+
 yt-dlp \
   --cookies-from-browser chrome \
   --proxy socks5://127.0.0.1:8080 \
@@ -114,7 +136,7 @@ ffmpeg -i "current/video_noaudio.mp4" -i "current/audio.wav" \
   "videos/${OUTPUT_FILENAME}" -y
 
 # Clean up temporary files
-rm -f "current/video_noaudio.mp4"
+rm -rf "current/*"
 
 echo "=== All done! ==="
 echo "Final video is available at: $(pwd)/videos/${OUTPUT_FILENAME}"
